@@ -1,0 +1,46 @@
+- name: Generate SSH key pair locally
+  hosts: localhost
+  gather_facts: no
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Create SSH key pair
+      ansible.builtin.openssh_keypair:
+        path: "/home/ubuntu/new_ssh_user/ssh_keys/{{ new_user }}"
+        type: rsa
+        size: 2048
+        owner: ubuntu
+        # force: true
+        state: present
+        passphrase: "{{ new_user }}_{{ new_user_birth }}"
+        comment: "{{ new_user }}"
+      register: ssh_keypair
+
+    - name: Read public key
+      ansible.builtin.slurp:
+        src: "{{ ssh_keypair.filename }}.pub"
+      register: public_key_content
+
+    - name: Save public key as fact
+      ansible.builtin.set_fact:
+        generated_public_key: "{{ public_key_content.content | b64decode }}"
+
+
+- name: Deploy public key to remote server
+  hosts: target_server
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Ensure a marker line is present in authorized_keys
+      ansible.builtin.lineinfile:
+        path: '/home/ubuntu/.ssh/authorized_keys'
+        line: "---{{ new_user }}---"
+        create: yes
+        insertafter: EOF
+
+    - name: Add generated public key to authorized_keys
+      ansible.posix.authorized_key:
+        user: ubuntu
+        key: "{{ hostvars['localhost'].generated_public_key }}"
+        state: present
